@@ -4,9 +4,23 @@
 #include <Adafruit_Sensor.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <PubSubClient.h>
 
 Adafruit_MPU6050 mpu;
 Preferences preferences;
+
+// ==================================================
+// MQTT CONFIGURATION
+// ==================================================
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+const char *MQTT_SERVER = "broker.hivemq.com";
+const int MQTT_PORT = 1883;
+
+const char *MQTT_TOPIC =
+    "ispatial/esp32-001/test";
 
 // ==================================================
 // WIFI CONFIGURATION
@@ -845,6 +859,66 @@ void connectWiFi()
         );
     }
 }
+
+// ==================================================
+// CONNECT TO MQTT
+// ==================================================
+
+void connectMQTT()
+{
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println(
+            "[MQTT] Wi-Fi not connected"
+        );
+
+        return;
+    }
+
+    mqttClient.setServer(
+        MQTT_SERVER,
+        MQTT_PORT
+    );
+
+    Serial.println(
+        "[MQTT] Connecting..."
+    );
+
+    String clientId =
+        "ESP32-001-";
+
+    clientId +=
+        String(random(0xffff), HEX);
+
+    if (
+        mqttClient.connect(
+            clientId.c_str()
+        )
+    )
+    {
+        Serial.println(
+            "[MQTT] Connected"
+        );
+
+        Serial.print(
+            "[MQTT] Broker: "
+        );
+
+        Serial.println(
+            MQTT_SERVER
+        );
+    }
+    else
+    {
+        Serial.print(
+            "[MQTT] Connection failed, state="
+        );
+
+        Serial.println(
+            mqttClient.state()
+        );
+    }
+}
 // ==================================================
 // SETUP
 // ==================================================
@@ -868,6 +942,8 @@ void setup()
     loadCalibration();
 
     connectWiFi();
+
+    connectMQTT();
 
     Serial.println();
 
@@ -1105,6 +1181,10 @@ void loop()
             }
         }
     }
+if (mqttClient.connected())
+{
+    mqttClient.loop();
+}
 
     vTaskDelay(
         pdMS_TO_TICKS(100)
