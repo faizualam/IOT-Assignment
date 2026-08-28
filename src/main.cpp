@@ -27,7 +27,7 @@ Preferences preferences;
 // FROZEN
 //
 
-#define UART_TEST_MODE "NORMAL"
+#define UART_TEST_MODE "OUT_OF_RANGE"
 
 // ==================================================
 // CALIBRATION
