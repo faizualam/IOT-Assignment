@@ -15,13 +15,24 @@ Preferences preferences;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
-unsigned long lastTestPublish = 0;
 
 const char *MQTT_SERVER = "broker.hivemq.com";
 const int MQTT_PORT = 1883;
 
 const char *MQTT_TOPIC =
     "ispatial/esp32-001/test";
+
+// ==================================================
+// FUNCTION DECLARATION
+// ==================================================
+
+void publishAggregatedRecord(
+    const char *sensorName,
+    float average,
+    float minimum,
+    float maximum,
+    int validCount
+);    
 
 // ==================================================
 // WIFI CONFIGURATION
@@ -475,18 +486,22 @@ void uartSensorTask(void *parameter)
 // PROCESSING + 60 SECOND AGGREGATION TASK
 // ==================================================
 
+
 void processingTask(void *parameter)
 {
     SensorReading reading;
 
-    // Aggregation variables
-    float sum = 0.0;
+    // MPU6050 statistics
+    float mpuSum = 0.0;
+    float mpuMin = 0.0;
+    float mpuMax = 0.0;
+    int mpuValidCount = 0;
 
-    float minimum = 0.0;
-
-    float maximum = 0.0;
-
-    int validCount = 0;
+    // UART statistics
+    float uartSum = 0.0;
+    float uartMin = 0.0;
+    float uartMax = 0.0;
+    int uartValidCount = 0;
 
     unsigned long aggregationStart =
         millis();
@@ -494,7 +509,7 @@ void processingTask(void *parameter)
     while (true)
     {
         // ------------------------------------------
-        // RECEIVE SENSOR READING
+        // RECEIVE SENSOR DATA
         // ------------------------------------------
 
         if (
@@ -506,12 +521,10 @@ void processingTask(void *parameter)
         )
         {
             // --------------------------------------
-            // PRINT INDIVIDUAL READING
+            // PRINT READING
             // --------------------------------------
 
-            Serial.print(
-                "[DATA] "
-            );
+            Serial.print("[DATA] ");
 
             Serial.print(
                 reading.sensor
@@ -554,51 +567,109 @@ void processingTask(void *parameter)
             );
 
             // --------------------------------------
-            // AGGREGATE ONLY VALID VALUES
+            // IGNORE INVALID VALUES
+            // --------------------------------------
+
+            if (!reading.valid)
+            {
+                continue;
+            }
+
+            // --------------------------------------
+            // MPU6050
             // --------------------------------------
 
             if (
-                reading.valid
+                strcmp(
+                    reading.sensor,
+                    "MPU6050"
+                ) == 0
             )
             {
                 if (
-                    validCount == 0
+                    mpuValidCount == 0
                 )
                 {
-                    minimum =
+                    mpuMin =
                         reading.value;
 
-                    maximum =
+                    mpuMax =
                         reading.value;
                 }
                 else
                 {
                     if (
-                        reading.value < minimum
+                        reading.value < mpuMin
                     )
                     {
-                        minimum =
+                        mpuMin =
                             reading.value;
                     }
 
                     if (
-                        reading.value > maximum
+                        reading.value > mpuMax
                     )
                     {
-                        maximum =
+                        mpuMax =
                             reading.value;
                     }
                 }
 
-                sum +=
+                mpuSum +=
                     reading.value;
 
-                validCount++;
+                mpuValidCount++;
+            }
+
+            // --------------------------------------
+            // UART SENSOR
+            // --------------------------------------
+
+            else if (
+                strcmp(
+                    reading.sensor,
+                    "UART_SENSOR"
+                ) == 0
+            )
+            {
+                if (
+                    uartValidCount == 0
+                )
+                {
+                    uartMin =
+                        reading.value;
+
+                    uartMax =
+                        reading.value;
+                }
+                else
+                {
+                    if (
+                        reading.value < uartMin
+                    )
+                    {
+                        uartMin =
+                            reading.value;
+                    }
+
+                    if (
+                        reading.value > uartMax
+                    )
+                    {
+                        uartMax =
+                            reading.value;
+                    }
+                }
+
+                uartSum +=
+                    reading.value;
+
+                uartValidCount++;
             }
         }
 
         // ------------------------------------------
-        // CHECK 60 SECOND WINDOW
+        // 60 SECOND REPORT
         // ------------------------------------------
 
         if (
@@ -613,15 +684,20 @@ void processingTask(void *parameter)
             );
 
             // --------------------------------------
-            // IF VALID DATA EXISTS
+            // MPU6050 RECORD
             // --------------------------------------
 
             if (
-                validCount > 0
+                mpuValidCount > 0
             )
             {
                 float average =
-                    sum / validCount;
+                    mpuSum /
+                    mpuValidCount;
+
+                Serial.println(
+                    "[AGG] MPU6050"
+                );
 
                 Serial.print(
                     "Average: "
@@ -636,7 +712,7 @@ void processingTask(void *parameter)
                 );
 
                 Serial.println(
-                    minimum
+                    mpuMin
                 );
 
                 Serial.print(
@@ -644,7 +720,7 @@ void processingTask(void *parameter)
                 );
 
                 Serial.println(
-                    maximum
+                    mpuMax
                 );
 
                 Serial.print(
@@ -652,30 +728,86 @@ void processingTask(void *parameter)
                 );
 
                 Serial.println(
-                    validCount
+                    mpuValidCount
+                );
+
+                // Publish MQTT
+                publishAggregatedRecord(
+                    "MPU6050",
+                    average,
+                    mpuMin,
+                    mpuMax,
+                    mpuValidCount
+                );
+            }
+            else
+            {
+                Serial.println(
+                    "[AGG] MPU6050: No valid samples"
                 );
             }
 
             // --------------------------------------
-            // NO VALID DATA
+            // UART RECORD
             // --------------------------------------
 
+            if (
+                uartValidCount > 0
+            )
+            {
+                float average =
+                    uartSum /
+                    uartValidCount;
+
+                Serial.println(
+                    "[AGG] UART_SENSOR"
+                );
+
+                Serial.print(
+                    "Average: "
+                );
+
+                Serial.println(
+                    average
+                );
+
+                Serial.print(
+                    "Minimum: "
+                );
+
+                Serial.println(
+                    uartMin
+                );
+
+                Serial.print(
+                    "Maximum: "
+                );
+
+                Serial.println(
+                    uartMax
+                );
+
+                Serial.print(
+                    "Valid Samples: "
+                );
+
+                Serial.println(
+                    uartValidCount
+                );
+
+                // Publish MQTT
+                publishAggregatedRecord(
+                    "UART_SENSOR",
+                    average,
+                    uartMin,
+                    uartMax,
+                    uartValidCount
+                );
+            }
             else
             {
                 Serial.println(
-                    "Average: N/A"
-                );
-
-                Serial.println(
-                    "Minimum: N/A"
-                );
-
-                Serial.println(
-                    "Maximum: N/A"
-                );
-
-                Serial.println(
-                    "Valid Samples: 0"
+                    "[AGG] UART_SENSOR: No valid samples"
                 );
             }
 
@@ -684,16 +816,18 @@ void processingTask(void *parameter)
             );
 
             // --------------------------------------
-            // RESET AGGREGATION
+            // RESET STATISTICS
             // --------------------------------------
 
-            sum = 0.0;
+            mpuSum = 0.0;
+            mpuMin = 0.0;
+            mpuMax = 0.0;
+            mpuValidCount = 0;
 
-            minimum = 0.0;
-
-            maximum = 0.0;
-
-            validCount = 0;
+            uartSum = 0.0;
+            uartMin = 0.0;
+            uartMax = 0.0;
+            uartValidCount = 0;
 
             aggregationStart =
                 millis();
@@ -869,10 +1003,6 @@ void connectMQTT()
 {
     if (WiFi.status() != WL_CONNECTED)
     {
-        Serial.println(
-            "[MQTT] Wi-Fi not connected"
-        );
-
         return;
     }
 
@@ -924,44 +1054,99 @@ void connectMQTT()
 // PUBLISH TEST JSON
 // ==================================================
 
-void publishTestMessage()
+// ==================================================
+// PUBLISH 60-SECOND AGGREGATED RECORD
+// ==================================================
+
+void publishAggregatedRecord(
+    const char *sensorName,
+    float average,
+    float minimum,
+    float maximum,
+    int validCount
+)
 {
     if (!mqttClient.connected())
     {
-        Serial.println("[MQTT] Not connected");
+        Serial.println("[MQTT] Not connected - record not published");
         return;
     }
 
     String payload = "{";
-    payload += "\"device_id\":\"ESP32-001\",";
-    payload += "\"firmware\":\"1.0.0\",";
-    payload += "\"sensor\":\"MPU6050\",";
-    payload += "\"value\":24.0,";
-    payload += "\"valid\":true";
+
+    payload += "\"device_id\":\"";
+    payload += DEVICE_ID;
+    payload += "\",";
+
+    payload += "\"firmware\":\"";
+    payload += FIRMWARE_VERSION;
+    payload += "\",";
+
+    payload += "\"sensor\":\"";
+    payload += sensorName;
+    payload += "\",";
+
+    payload += "\"timestamp\":";
+    payload += String(millis());
+    payload += ",";
+
+    payload += "\"average\":";
+    payload += String(average, 2);
+    payload += ",";
+
+    payload += "\"min\":";
+    payload += String(minimum, 2);
+    payload += ",";
+
+    payload += "\"max\":";
+    payload += String(maximum, 2);
+    payload += ",";
+
+    payload += "\"valid_count\":";
+    payload += String(validCount);
+
     payload += "}";
 
-    const char *topic =
-        "ispatial/ESP32-001/test";
+    String topic =
+        "ispatial/devices/";
+
+    topic += DEVICE_ID;
+
+    topic += "/telemetry/";
+
+    topic += sensorName;
 
     if (
         mqttClient.publish(
-            topic,
+            topic.c_str(),
             payload.c_str()
         )
     )
     {
-        Serial.println("[MQTT] Test message published");
+        Serial.println(
+            "[MQTT] Aggregated record published"
+        );
 
-        Serial.print("[MQTT] Topic: ");
-        Serial.println(topic);
+        Serial.print(
+            "[MQTT] Topic: "
+        );
 
-        Serial.print("[MQTT] Payload: ");
-        Serial.println(payload);
+        Serial.println(
+            topic
+        );
+
+        Serial.print(
+            "[MQTT] Payload: "
+        );
+
+        Serial.println(
+            payload
+        );
     }
     else
     {
         Serial.println(
-            "[MQTT] Publish failed"
+            "[MQTT] Aggregated publish failed"
         );
     }
 }
@@ -1158,6 +1343,18 @@ void setup()
 
 void loop()
 {
+// ------------------------------------------
+    // MQTT AUTO RECONNECT
+    // ------------------------------------------
+
+    if (
+        WiFi.status() == WL_CONNECTED &&
+        !mqttClient.connected()
+    )
+    {
+        connectMQTT();
+    }
+
     // ------------------------------------------
     // SERIAL COMMAND HANDLING
     // ------------------------------------------
@@ -1165,80 +1362,9 @@ void loop()
     if (
         Serial.available()
     )
-    {
-        String command =
-            Serial.readStringUntil(
-                '\n'
-            );
-
-        command.trim();
-
-        // --------------------------------------
-        // SETCAL COMMAND
-        // --------------------------------------
-
-        if (
-            command.startsWith(
-                "SETCAL"
-            )
-        )
-        {
-            int firstSpace =
-                command.indexOf(
-                    ' '
-                );
-
-            int secondSpace =
-                command.indexOf(
-                    ' ',
-                    firstSpace + 1
-                );
-
-            if (
-                firstSpace > 0 &&
-                secondSpace > firstSpace
-            )
-            {
-                float gain =
-                    command
-                        .substring(
-                            firstSpace + 1,
-                            secondSpace
-                        )
-                        .toFloat();
-
-                float offset =
-                    command
-                        .substring(
-                            secondSpace + 1
-                        )
-                        .toFloat();
-
-                saveCalibration(
-                    gain,
-                    offset
-                );
-            }
-            else
-            {
-                Serial.println(
-                    "[ERROR] Use: SETCAL gain offset"
-                );
-            }
-        }
-    }
 if (mqttClient.connected())
 {
     mqttClient.loop();
-}
-if (
-    mqttClient.connected() &&
-    millis() - lastTestPublish >= 10000
-)
-{
-    publishTestMessage();
-
-    lastTestPublish = millis();
 }
 
     vTaskDelay(
