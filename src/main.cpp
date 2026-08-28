@@ -2,8 +2,11 @@
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <Preferences.h>
 
 Adafruit_MPU6050 mpu;
+
+Preferences preferences;
 
 // ==================================================
 // PIN CONFIGURATION
@@ -37,7 +40,7 @@ Adafruit_MPU6050 mpu;
 // calibrated value = (raw value × gain) + offset
 
 float temperatureGain = 1.0;
-float temperatureOffset = 2.0;
+float temperatureOffset = 0.0;
 
 // ==================================================
 // SENSOR STATUS
@@ -599,6 +602,93 @@ void processingTask(void *parameter)
 }
 
 // ==================================================
+// LOAD CALIBRATION FROM NVS
+// ==================================================
+
+void loadCalibration()
+{
+    preferences.begin(
+        "calibration",
+        false
+    );
+
+    temperatureGain =
+        preferences.getFloat(
+            "temp_gain",
+            1.0
+        );
+
+    temperatureOffset =
+        preferences.getFloat(
+            "temp_offset",
+            0.0
+        );
+
+    preferences.end();
+
+    Serial.println(
+        "[CALIBRATION] Loaded from NVS"
+    );
+
+    Serial.print(
+        "[CALIBRATION] Gain: "
+    );
+
+    Serial.println(
+        temperatureGain
+    );
+
+    Serial.print(
+        "[CALIBRATION] Offset: "
+    );
+
+    Serial.println(
+        temperatureOffset
+    );
+}
+void saveCalibration(float gain, float offset)
+{
+    preferences.begin(
+        "calibration",
+        false
+    );
+
+    preferences.putFloat(
+        "temp_gain",
+        gain
+    );
+
+    preferences.putFloat(
+        "temp_offset",
+        offset
+    );
+
+    preferences.end();
+
+    temperatureGain = gain;
+    temperatureOffset = offset;
+
+    Serial.println(
+        "[CALIBRATION] Saved to NVS"
+    );
+
+    Serial.print(
+        "[CALIBRATION] New Gain: "
+    );
+
+    Serial.println(
+        temperatureGain
+    );
+
+    Serial.print(
+        "[CALIBRATION] New Offset: "
+    );
+
+    Serial.println(
+        temperatureOffset
+    );
+}
+// ==================================================
 // SETUP
 // ==================================================
 
@@ -608,29 +698,22 @@ void setup()
     // SERIAL MONITOR
     // ------------------------------------------
 
-    Serial.begin(
-        115200
-    );
+    Serial.begin(115200);
 
     delay(1000);
 
+    loadCalibration();
+
+
     Serial.println();
 
-    Serial.println(
-        "================================="
-    );
+    Serial.println("=================================");
 
-    Serial.println(
-        " IoT Monitoring Node"
-    );
+    Serial.println(" IoT Monitoring Node ");
 
-    Serial.println(
-        " Phase 4 - Calibration"
-    );
+    Serial.println(" Phase 4 - Calibration");
 
-    Serial.println(
-        "================================="
-    );
+    Serial.println("=================================");
 
     // ------------------------------------------
     // I2C INITIALIZATION
@@ -777,11 +860,58 @@ void setup()
 
 void loop()
 {
-    // Keep the main loop responsive.
-    // Sensor acquisition is handled by
-    // independent FreeRTOS tasks.
+    if (Serial.available())
+    {
+        String command =
+            Serial.readStringUntil('\n');
+
+        command.trim();
+
+        if (command.startsWith("SETCAL"))
+        {
+            float gain;
+            float offset;
+
+            int firstSpace =
+                command.indexOf(' ');
+
+            int secondSpace =
+                command.indexOf(
+                    ' ',
+                    firstSpace + 1
+                );
+
+            if (
+                firstSpace > 0 &&
+                secondSpace > firstSpace
+            )
+            {
+                gain =
+                    command.substring(
+                        firstSpace + 1,
+                        secondSpace
+                    ).toFloat();
+
+                offset =
+                    command.substring(
+                        secondSpace + 1
+                    ).toFloat();
+
+                saveCalibration(
+                    gain,
+                    offset
+                );
+            }
+            else
+            {
+                Serial.println(
+                    "[ERROR] Use: SETCAL gain offset"
+                );
+            }
+        }
+    }
 
     vTaskDelay(
-        pdMS_TO_TICKS(1000)
+        pdMS_TO_TICKS(100)
     );
 }
