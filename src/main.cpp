@@ -15,6 +15,7 @@ Preferences preferences;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
+unsigned long lastTestPublish = 0;
 
 const char *MQTT_SERVER = "broker.hivemq.com";
 const int MQTT_PORT = 1883;
@@ -920,6 +921,51 @@ void connectMQTT()
     }
 }
 // ==================================================
+// PUBLISH TEST JSON
+// ==================================================
+
+void publishTestMessage()
+{
+    if (!mqttClient.connected())
+    {
+        Serial.println("[MQTT] Not connected");
+        return;
+    }
+
+    String payload = "{";
+    payload += "\"device_id\":\"ESP32-001\",";
+    payload += "\"firmware\":\"1.0.0\",";
+    payload += "\"sensor\":\"MPU6050\",";
+    payload += "\"value\":24.0,";
+    payload += "\"valid\":true";
+    payload += "}";
+
+    const char *topic =
+        "ispatial/ESP32-001/test";
+
+    if (
+        mqttClient.publish(
+            topic,
+            payload.c_str()
+        )
+    )
+    {
+        Serial.println("[MQTT] Test message published");
+
+        Serial.print("[MQTT] Topic: ");
+        Serial.println(topic);
+
+        Serial.print("[MQTT] Payload: ");
+        Serial.println(payload);
+    }
+    else
+    {
+        Serial.println(
+            "[MQTT] Publish failed"
+        );
+    }
+}
+// ==================================================
 // SETUP
 // ==================================================
 
@@ -1184,6 +1230,15 @@ void loop()
 if (mqttClient.connected())
 {
     mqttClient.loop();
+}
+if (
+    mqttClient.connected() &&
+    millis() - lastTestPublish >= 10000
+)
+{
+    publishTestMessage();
+
+    lastTestPublish = millis();
 }
 
     vTaskDelay(
