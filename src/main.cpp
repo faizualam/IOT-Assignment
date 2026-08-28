@@ -3,9 +3,20 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Preferences.h>
+#include <WiFi.h>
 
 Adafruit_MPU6050 mpu;
 Preferences preferences;
+
+// ==================================================
+// WIFI CONFIGURATION
+// ==================================================
+
+const char *WIFI_SSID = "Wokwi-GUEST";
+const char *WIFI_PASSWORD = "";
+
+const char *DEVICE_ID = "ESP32-001";
+const char *FIRMWARE_VERSION = "1.0.0";
 
 // ==================================================
 // PIN CONFIGURATION
@@ -27,7 +38,7 @@ Preferences preferences;
 // FROZEN
 //
 
-#define UART_TEST_MODE "OUT_OF_RANGE"
+#define UART_TEST_MODE "NORMAL"
 
 // ==================================================
 // CALIBRATION
@@ -773,7 +784,67 @@ void saveCalibration(
         temperatureOffset
     );
 }
+// ==================================================
+// CONNECT TO WIFI
+// ==================================================
 
+void connectWiFi()
+{
+    Serial.println(
+        "[WIFI] Connecting..."
+    );
+
+    WiFi.begin(
+        WIFI_SSID,
+        WIFI_PASSWORD
+    );
+
+    unsigned long startTime =
+        millis();
+
+    while (
+        WiFi.status() != WL_CONNECTED &&
+        millis() - startTime < 15000
+    )
+    {
+        Serial.print(".");
+
+        delay(500);
+    }
+
+    Serial.println();
+
+    if (
+        WiFi.status() == WL_CONNECTED
+    )
+    {
+        Serial.println(
+            "[WIFI] Connected"
+        );
+
+        Serial.print(
+            "[WIFI] IP Address: "
+        );
+
+        Serial.println(
+            WiFi.localIP()
+        );
+
+        Serial.print(
+            "[WIFI] RSSI: "
+        );
+
+        Serial.println(
+            WiFi.RSSI()
+        );
+    }
+    else
+    {
+        Serial.println(
+            "[WIFI] Connection failed"
+        );
+    }
+}
 // ==================================================
 // SETUP
 // ==================================================
@@ -795,6 +866,8 @@ void setup()
     // ------------------------------------------
 
     loadCalibration();
+
+    connectWiFi();
 
     Serial.println();
 
