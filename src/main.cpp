@@ -5,7 +5,6 @@
 #include <Preferences.h>
 
 Adafruit_MPU6050 mpu;
-
 Preferences preferences;
 
 // ==================================================
@@ -22,8 +21,6 @@ Preferences preferences;
 // UART TEST MODE
 // ==================================================
 //
-// Available modes:
-//
 // NORMAL
 // NO_RESPONSE
 // OUT_OF_RANGE
@@ -35,9 +32,6 @@ Preferences preferences;
 // ==================================================
 // CALIBRATION
 // ==================================================
-
-// Formula:
-// calibrated value = (raw value × gain) + offset
 
 float temperatureGain = 1.0;
 float temperatureOffset = 0.0;
@@ -56,7 +50,7 @@ enum SensorStatus
 };
 
 // ==================================================
-// SENSOR READING STRUCTURE
+// SENSOR READING
 // ==================================================
 
 struct SensorReading
@@ -73,7 +67,7 @@ struct SensorReading
 };
 
 // ==================================================
-// FREE RTOS QUEUE
+// QUEUE
 // ==================================================
 
 QueueHandle_t sensorQueue;
@@ -132,21 +126,22 @@ void i2cSensorTask(void *parameter)
         );
 
         // ------------------------------------------
-        // SENSOR WARM-UP
+        // WARM-UP
         // ------------------------------------------
 
         if (!sensorReady)
         {
             if (millis() - startTime < 5000)
             {
-                reading.value = 0;
+                reading.value = 0.0;
 
                 reading.valid = false;
 
                 reading.status =
                     SENSOR_WARMING_UP;
 
-                reading.timestamp = millis();
+                reading.timestamp =
+                    millis();
 
                 xQueueSend(
                     sensorQueue,
@@ -179,7 +174,7 @@ void i2cSensorTask(void *parameter)
         );
 
         // ------------------------------------------
-        // RAW VALUE
+        // RAW TEMPERATURE
         // ------------------------------------------
 
         float rawValue =
@@ -192,10 +187,6 @@ void i2cSensorTask(void *parameter)
         float value =
             (rawValue * temperatureGain)
             + temperatureOffset;
-
-        // ------------------------------------------
-        // CALIBRATION LOG
-        // ------------------------------------------
 
         Serial.print(
             "[CALIBRATION] Raw: "
@@ -230,7 +221,7 @@ void i2cSensorTask(void *parameter)
         );
 
         // ------------------------------------------
-        // RANGE VALIDATION
+        // RANGE CHECK
         // ------------------------------------------
 
         if (
@@ -255,7 +246,8 @@ void i2cSensorTask(void *parameter)
                 SENSOR_OK;
         }
 
-        reading.timestamp = millis();
+        reading.timestamp =
+            millis();
 
         // ------------------------------------------
         // SEND TO QUEUE
@@ -268,7 +260,7 @@ void i2cSensorTask(void *parameter)
         );
 
         // ------------------------------------------
-        // SAMPLE EVERY 10 SECONDS
+        // 10 SECOND SAMPLE INTERVAL
         // ------------------------------------------
 
         vTaskDelay(
@@ -295,7 +287,7 @@ void uartSensorTask(void *parameter)
         );
 
         // ------------------------------------------
-        // NORMAL MODE
+        // NORMAL
         // ------------------------------------------
 
         if (
@@ -319,9 +311,6 @@ void uartSensorTask(void *parameter)
             unsigned long start =
                 millis();
 
-            // Wait maximum 1 second
-            // for UART response.
-
             while (
                 !uartSensor.available() &&
                 millis() - start < 1000
@@ -332,11 +321,9 @@ void uartSensorTask(void *parameter)
                 );
             }
 
-            // --------------------------------------
-            // UART RESPONSE RECEIVED
-            // --------------------------------------
-
-            if (uartSensor.available())
+            if (
+                uartSensor.available()
+            )
             {
                 String response =
                     uartSensor.readStringUntil(
@@ -363,7 +350,7 @@ void uartSensorTask(void *parameter)
                 }
                 else
                 {
-                    reading.value = 0;
+                    reading.value = 0.0;
 
                     reading.valid = false;
 
@@ -371,14 +358,9 @@ void uartSensorTask(void *parameter)
                         SENSOR_NO_RESPONSE;
                 }
             }
-
-            // --------------------------------------
-            // NO UART RESPONSE
-            // --------------------------------------
-
             else
             {
-                reading.value = 0;
+                reading.value = 0.0;
 
                 reading.valid = false;
 
@@ -388,7 +370,7 @@ void uartSensorTask(void *parameter)
         }
 
         // ------------------------------------------
-        // NO RESPONSE MODE
+        // NO RESPONSE
         // ------------------------------------------
 
         else if (
@@ -398,9 +380,7 @@ void uartSensorTask(void *parameter)
             ) == 0
         )
         {
-            // Do not send anything.
-
-            reading.value = 0;
+            reading.value = 0.0;
 
             reading.valid = false;
 
@@ -409,7 +389,7 @@ void uartSensorTask(void *parameter)
         }
 
         // ------------------------------------------
-        // OUT OF RANGE MODE
+        // OUT OF RANGE
         // ------------------------------------------
 
         else if (
@@ -419,46 +399,16 @@ void uartSensorTask(void *parameter)
             ) == 0
         )
         {
-            uartSensor.println(
-                "TEMP:150.0"
-            );
+            reading.value = 150.0;
 
-            vTaskDelay(
-                pdMS_TO_TICKS(20)
-            );
+            reading.valid = false;
 
-            if (uartSensor.available())
-            {
-                String response =
-                    uartSensor.readStringUntil(
-                        '\n'
-                    );
-
-                response.trim();
-
-                reading.value =
-                    response
-                        .substring(5)
-                        .toFloat();
-
-                reading.valid = false;
-
-                reading.status =
-                    SENSOR_OUT_OF_RANGE;
-            }
-            else
-            {
-                reading.value = 150.0;
-
-                reading.valid = false;
-
-                reading.status =
-                    SENSOR_OUT_OF_RANGE;
-            }
+            reading.status =
+                SENSOR_OUT_OF_RANGE;
         }
 
         // ------------------------------------------
-        // FROZEN MODE
+        // FROZEN
         // ------------------------------------------
 
         else if (
@@ -468,53 +418,16 @@ void uartSensorTask(void *parameter)
             ) == 0
         )
         {
-            uartSensor.println(
-                "TEMP:25.0"
-            );
+            reading.value = 25.0;
 
-            vTaskDelay(
-                pdMS_TO_TICKS(20)
-            );
+            reading.valid = true;
 
-            if (uartSensor.available())
-            {
-                String response =
-                    uartSensor.readStringUntil(
-                        '\n'
-                    );
-
-                response.trim();
-
-                reading.value =
-                    response
-                        .substring(5)
-                        .toFloat();
-
-                // Preliminary frozen test.
-                // Full time-based detection
-                // will be improved later.
-
-                reading.valid = true;
-
-                reading.status =
-                    SENSOR_OK;
-            }
-            else
-            {
-                reading.value = 25.0;
-
-                reading.valid = true;
-
-                reading.status =
-                    SENSOR_OK;
-            }
+            reading.status =
+                SENSOR_OK;
         }
 
-        // ------------------------------------------
-        // TIMESTAMP
-        // ------------------------------------------
-
-        reading.timestamp = millis();
+        reading.timestamp =
+            millis();
 
         // ------------------------------------------
         // SEND TO QUEUE
@@ -526,10 +439,6 @@ void uartSensorTask(void *parameter)
             0
         );
 
-        // ------------------------------------------
-        // SAMPLE EVERY 10 SECONDS
-        // ------------------------------------------
-
         vTaskDelay(
             pdMS_TO_TICKS(10000)
         );
@@ -537,23 +446,43 @@ void uartSensorTask(void *parameter)
 }
 
 // ==================================================
-// PROCESSING TASK
+// PROCESSING + 60 SECOND AGGREGATION TASK
 // ==================================================
 
 void processingTask(void *parameter)
 {
     SensorReading reading;
 
+    // Aggregation variables
+    float sum = 0.0;
+
+    float minimum = 0.0;
+
+    float maximum = 0.0;
+
+    int validCount = 0;
+
+    unsigned long aggregationStart =
+        millis();
+
     while (true)
     {
+        // ------------------------------------------
+        // RECEIVE SENSOR READING
+        // ------------------------------------------
+
         if (
             xQueueReceive(
                 sensorQueue,
                 &reading,
-                portMAX_DELAY
+                pdMS_TO_TICKS(100)
             )
         )
         {
+            // --------------------------------------
+            // PRINT INDIVIDUAL READING
+            // --------------------------------------
+
             Serial.print(
                 "[DATA] "
             );
@@ -597,6 +526,151 @@ void processingTask(void *parameter)
             Serial.println(
                 reading.timestamp
             );
+
+            // --------------------------------------
+            // AGGREGATE ONLY VALID VALUES
+            // --------------------------------------
+
+            if (
+                reading.valid
+            )
+            {
+                if (
+                    validCount == 0
+                )
+                {
+                    minimum =
+                        reading.value;
+
+                    maximum =
+                        reading.value;
+                }
+                else
+                {
+                    if (
+                        reading.value < minimum
+                    )
+                    {
+                        minimum =
+                            reading.value;
+                    }
+
+                    if (
+                        reading.value > maximum
+                    )
+                    {
+                        maximum =
+                            reading.value;
+                    }
+                }
+
+                sum +=
+                    reading.value;
+
+                validCount++;
+            }
+        }
+
+        // ------------------------------------------
+        // CHECK 60 SECOND WINDOW
+        // ------------------------------------------
+
+        if (
+            millis() - aggregationStart
+            >= 60000
+        )
+        {
+            Serial.println();
+
+            Serial.println(
+                "========== 60 SECOND RECORD =========="
+            );
+
+            // --------------------------------------
+            // IF VALID DATA EXISTS
+            // --------------------------------------
+
+            if (
+                validCount > 0
+            )
+            {
+                float average =
+                    sum / validCount;
+
+                Serial.print(
+                    "Average: "
+                );
+
+                Serial.println(
+                    average
+                );
+
+                Serial.print(
+                    "Minimum: "
+                );
+
+                Serial.println(
+                    minimum
+                );
+
+                Serial.print(
+                    "Maximum: "
+                );
+
+                Serial.println(
+                    maximum
+                );
+
+                Serial.print(
+                    "Valid Samples: "
+                );
+
+                Serial.println(
+                    validCount
+                );
+            }
+
+            // --------------------------------------
+            // NO VALID DATA
+            // --------------------------------------
+
+            else
+            {
+                Serial.println(
+                    "Average: N/A"
+                );
+
+                Serial.println(
+                    "Minimum: N/A"
+                );
+
+                Serial.println(
+                    "Maximum: N/A"
+                );
+
+                Serial.println(
+                    "Valid Samples: 0"
+                );
+            }
+
+            Serial.println(
+                "======================================"
+            );
+
+            // --------------------------------------
+            // RESET AGGREGATION
+            // --------------------------------------
+
+            sum = 0.0;
+
+            minimum = 0.0;
+
+            maximum = 0.0;
+
+            validCount = 0;
+
+            aggregationStart =
+                millis();
         }
     }
 }
@@ -646,7 +720,15 @@ void loadCalibration()
         temperatureOffset
     );
 }
-void saveCalibration(float gain, float offset)
+
+// ==================================================
+// SAVE CALIBRATION TO NVS
+// ==================================================
+
+void saveCalibration(
+    float gain,
+    float offset
+)
 {
     preferences.begin(
         "calibration",
@@ -665,8 +747,11 @@ void saveCalibration(float gain, float offset)
 
     preferences.end();
 
-    temperatureGain = gain;
-    temperatureOffset = offset;
+    temperatureGain =
+        gain;
+
+    temperatureOffset =
+        offset;
 
     Serial.println(
         "[CALIBRATION] Saved to NVS"
@@ -688,6 +773,7 @@ void saveCalibration(float gain, float offset)
         temperatureOffset
     );
 }
+
 // ==================================================
 // SETUP
 // ==================================================
@@ -695,28 +781,41 @@ void saveCalibration(float gain, float offset)
 void setup()
 {
     // ------------------------------------------
-    // SERIAL MONITOR
+    // SERIAL
     // ------------------------------------------
 
-    Serial.begin(115200);
+    Serial.begin(
+        115200
+    );
 
     delay(1000);
 
-    loadCalibration();
+    // ------------------------------------------
+    // LOAD CALIBRATION
+    // ------------------------------------------
 
+    loadCalibration();
 
     Serial.println();
 
-    Serial.println("=================================");
+    Serial.println(
+        "================================="
+    );
 
-    Serial.println(" IoT Monitoring Node ");
+    Serial.println(
+        " IoT Monitoring Node"
+    );
 
-    Serial.println(" Phase 4 - Calibration");
+    Serial.println(
+        " Phase 5 - Aggregation"
+    );
 
-    Serial.println("=================================");
+    Serial.println(
+        "================================="
+    );
 
     // ------------------------------------------
-    // I2C INITIALIZATION
+    // I2C
     // ------------------------------------------
 
     Wire.begin(
@@ -728,7 +827,9 @@ void setup()
         "[I2C] Initializing MPU6050..."
     );
 
-    if (!mpu.begin())
+    if (
+        !mpu.begin()
+    )
     {
         Serial.println(
             "[ERROR] MPU6050 not detected!"
@@ -742,7 +843,7 @@ void setup()
     }
 
     // ------------------------------------------
-    // UART INITIALIZATION
+    // UART
     // ------------------------------------------
 
     uartSensor.begin(
@@ -757,7 +858,7 @@ void setup()
     );
 
     // ------------------------------------------
-    // QUEUE CREATION
+    // QUEUE
     // ------------------------------------------
 
     sensorQueue =
@@ -766,7 +867,9 @@ void setup()
             sizeof(SensorReading)
         );
 
-    if (sensorQueue == NULL)
+    if (
+        sensorQueue == NULL
+    )
     {
         Serial.println(
             "[ERROR] Queue creation failed!"
@@ -783,7 +886,7 @@ void setup()
     );
 
     // ------------------------------------------
-    // CREATE I2C TASK
+    // I2C TASK
     // ------------------------------------------
 
     xTaskCreate(
@@ -796,7 +899,7 @@ void setup()
     );
 
     // ------------------------------------------
-    // CREATE UART TASK
+    // UART TASK
     // ------------------------------------------
 
     xTaskCreate(
@@ -809,7 +912,7 @@ void setup()
     );
 
     // ------------------------------------------
-    // CREATE PROCESSING TASK
+    // PROCESSING TASK
     // ------------------------------------------
 
     xTaskCreate(
@@ -860,20 +963,35 @@ void setup()
 
 void loop()
 {
-    if (Serial.available())
+    // ------------------------------------------
+    // SERIAL COMMAND HANDLING
+    // ------------------------------------------
+
+    if (
+        Serial.available()
+    )
     {
         String command =
-            Serial.readStringUntil('\n');
+            Serial.readStringUntil(
+                '\n'
+            );
 
         command.trim();
 
-        if (command.startsWith("SETCAL"))
-        {
-            float gain;
-            float offset;
+        // --------------------------------------
+        // SETCAL COMMAND
+        // --------------------------------------
 
+        if (
+            command.startsWith(
+                "SETCAL"
+            )
+        )
+        {
             int firstSpace =
-                command.indexOf(' ');
+                command.indexOf(
+                    ' '
+                );
 
             int secondSpace =
                 command.indexOf(
@@ -886,16 +1004,20 @@ void loop()
                 secondSpace > firstSpace
             )
             {
-                gain =
-                    command.substring(
-                        firstSpace + 1,
-                        secondSpace
-                    ).toFloat();
+                float gain =
+                    command
+                        .substring(
+                            firstSpace + 1,
+                            secondSpace
+                        )
+                        .toFloat();
 
-                offset =
-                    command.substring(
-                        secondSpace + 1
-                    ).toFloat();
+                float offset =
+                    command
+                        .substring(
+                            secondSpace + 1
+                        )
+                        .toFloat();
 
                 saveCalibration(
                     gain,
