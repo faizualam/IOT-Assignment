@@ -19,8 +19,25 @@ PubSubClient mqttClient(espClient);
 const char *MQTT_SERVER = "broker.hivemq.com";
 const int MQTT_PORT = 1883;
 
+const char *DEVICE_ID = "ESP32-001";
+const char *FIRMWARE_VERSION = "1.0.0";
+
 const char *MQTT_TOPIC =
     "ispatial/esp32-001/test";
+
+// ==================================================
+// MQTT RECONNECT BACKOFF
+// ==================================================
+
+unsigned long lastMQTTAttempt = 0;
+
+unsigned long mqttRetryDelay = 2000;
+
+const unsigned long MQTT_MAX_RETRY_DELAY = 30000;
+
+bool mqttTestDisabled = false;
+
+unsigned long lastHealthPublish = 0;
 
 // ==================================================
 // FUNCTION DECLARATION
@@ -32,7 +49,79 @@ void publishAggregatedRecord(
     float minimum,
     float maximum,
     int validCount
-);    
+);
+
+// ==================================================
+// MQTT HEALTH MESSAGE
+// ==================================================
+
+void publishHealthMessage()
+{
+    if (!mqttClient.connected())
+    {
+        Serial.println(
+            "[MQTT] Health not published - MQTT disconnected"
+        );
+
+        return;
+    }
+
+    String payload = "{";
+
+    payload += "\"device_id\":\"";
+    payload += DEVICE_ID;
+    payload += "\",";
+
+    payload += "\"status\":\"OK\",";
+
+    payload += "\"mqtt\":true,";
+
+    payload += "\"uptime\":";
+    payload += String(millis());
+
+    payload += "}";
+
+    String topic =
+        "ispatial/devices/";
+
+    topic += DEVICE_ID;
+
+    topic += "/health";
+
+    if (
+        mqttClient.publish(
+            topic.c_str(),
+            payload.c_str()
+        )
+    )
+    {
+        Serial.println(
+            "[MQTT] Health message published"
+        );
+
+        Serial.print(
+            "[MQTT] Health topic: "
+        );
+
+        Serial.println(
+            topic
+        );
+
+        Serial.print(
+            "[MQTT] Health payload: "
+        );
+
+        Serial.println(
+            payload
+        );
+    }
+    else
+    {
+        Serial.println(
+            "[MQTT] Health publish failed"
+        );
+    }
+}
 
 // ==================================================
 // WIFI CONFIGURATION
@@ -40,9 +129,6 @@ void publishAggregatedRecord(
 
 const char *WIFI_SSID = "Wokwi-GUEST";
 const char *WIFI_PASSWORD = "";
-
-const char *DEVICE_ID = "ESP32-001";
-const char *FIRMWARE_VERSION = "1.0.0";
 
 // ==================================================
 // PIN CONFIGURATION
@@ -1006,6 +1092,19 @@ void connectMQTT()
         return;
     }
 
+    unsigned long now = millis();
+
+    // Wait until retry delay has elapsed
+    if (
+        now - lastMQTTAttempt <
+        mqttRetryDelay
+    )
+    {
+        return;
+    }
+
+    lastMQTTAttempt = now;
+
     mqttClient.setServer(
         MQTT_SERVER,
         MQTT_PORT
@@ -1038,6 +1137,10 @@ void connectMQTT()
         Serial.println(
             MQTT_SERVER
         );
+
+        // Connection successful:
+        // reset backoff
+        mqttRetryDelay = 2000;
     }
     else
     {
@@ -1047,6 +1150,30 @@ void connectMQTT()
 
         Serial.println(
             mqttClient.state()
+        );
+
+        // Double retry delay
+        mqttRetryDelay *= 2;
+
+        if (
+            mqttRetryDelay >
+            MQTT_MAX_RETRY_DELAY
+        )
+        {
+            mqttRetryDelay =
+                MQTT_MAX_RETRY_DELAY;
+        }
+
+        Serial.print(
+            "[MQTT] Next retry in "
+        );
+
+        Serial.print(
+            mqttRetryDelay / 1000
+        );
+
+        Serial.println(
+            " seconds"
         );
     }
 }
@@ -1343,13 +1470,14 @@ void setup()
 
 void loop()
 {
-// ------------------------------------------
-    // MQTT AUTO RECONNECT
+    // ------------------------------------------
+    // MQTT AUTO RECONNECT with Backoff
     // ------------------------------------------
 
     if (
         WiFi.status() == WL_CONNECTED &&
-        !mqttClient.connected()
+        !mqttClient.connected() &&
+        !mqttTestDisabled
     )
     {
         connectMQTT();
@@ -1359,13 +1487,61 @@ void loop()
     // SERIAL COMMAND HANDLING
     // ------------------------------------------
 
-    if (
-        Serial.available()
-    )
-if (mqttClient.connected())
+   if (Serial.available())
 {
-    mqttClient.loop();
+    String command =
+        Serial.readStringUntil('\n');
+
+    command.trim();
+
+    // MQTT fault injection
+    if (command == "MQTT_OFF")
+    {
+        mqttTestDisabled = true;
+
+        mqttClient.disconnect();
+
+        Serial.println(
+            "[TEST] MQTT disabled"
+        );
+    }
+
+    else if (command == "MQTT_ON")
+    {
+        mqttTestDisabled = false;
+
+        Serial.println(
+            "[TEST] MQTT enabled"
+        );
+
+        lastMQTTAttempt = 0;
+        mqttRetryDelay = 2000;
+        connectMQTT();
+    }
+    }
+
+    // ------------------------------------------
+    // MQTT CLIENT LOOP
+    // ------------------------------------------
+
+    if (mqttClient.connected())
+    {
+        mqttClient.loop();
+
+        // ------------------------------------------
+// PERIODIC MQTT HEALTH MESSAGE
+// ------------------------------------------
+
+if (
+    mqttClient.connected() &&
+    millis() - lastHealthPublish >= 30000
+)
+{
+    publishHealthMessage();
+
+    lastHealthPublish = millis();
 }
+    }
 
     vTaskDelay(
         pdMS_TO_TICKS(100)
