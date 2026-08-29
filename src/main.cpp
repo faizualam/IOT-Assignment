@@ -6,6 +6,20 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
+// ==================================================
+// SENSOR STATUS
+// ==================================================
+
+enum SensorStatus
+{
+    SENSOR_WARMING_UP,
+    SENSOR_OK,
+    SENSOR_NO_RESPONSE,
+    SENSOR_OUT_OF_RANGE,
+    SENSOR_FROZEN
+};
+
+
 Adafruit_MPU6050 mpu;
 Preferences preferences;
 
@@ -232,15 +246,6 @@ float temperatureOffset = 0.0;
 // ==================================================
 // SENSOR STATUS
 // ==================================================
-
-enum SensorStatus
-{
-    SENSOR_WARMING_UP,
-    SENSOR_OK,
-    SENSOR_NO_RESPONSE,
-    SENSOR_OUT_OF_RANGE,
-    SENSOR_FROZEN
-};
 
 // ==================================================
 // SENSOR READING
