@@ -40,8 +40,76 @@ bool mqttTestDisabled = false;
 unsigned long lastHealthPublish = 0;
 
 // ==================================================
+// STORE-AND-FORWARD BUFFER
+// ==================================================
+
+#define MQTT_BUFFER_SIZE 5
+
+struct BufferedRecord
+{
+    char sensor[16];
+    float average;
+    float minimum;
+    float maximum;
+    int validCount;
+    unsigned long timestamp;
+};
+
+BufferedRecord mqttBuffer[MQTT_BUFFER_SIZE];
+
+int mqttBufferCount = 0;
+
+// ==================================================
 // FUNCTION DECLARATION
 // ==================================================
+
+void bufferAggregatedRecord(
+    const char *sensorName,
+    float average,
+    float minimum,
+    float maximum,
+    int validCount
+)
+{
+    if (mqttBufferCount >= MQTT_BUFFER_SIZE)
+    {
+        Serial.println(
+            "[BUFFER] Buffer full - record dropped"
+        );
+
+        return;
+    }
+
+    strcpy(
+        mqttBuffer[mqttBufferCount].sensor,
+        sensorName
+    );
+
+    mqttBuffer[mqttBufferCount].average =
+        average;
+
+    mqttBuffer[mqttBufferCount].minimum =
+        minimum;
+
+    mqttBuffer[mqttBufferCount].maximum =
+        maximum;
+
+    mqttBuffer[mqttBufferCount].validCount =
+        validCount;
+
+    mqttBuffer[mqttBufferCount].timestamp =
+        millis();
+
+    mqttBufferCount++;
+
+    Serial.print(
+        "[BUFFER] Record stored. Count: "
+    );
+
+    Serial.println(
+        mqttBufferCount
+    );
+}
 
 void publishAggregatedRecord(
     const char *sensorName,
@@ -62,6 +130,8 @@ void publishHealthMessage()
         Serial.println(
             "[MQTT] Health not published - MQTT disconnected"
         );
+
+        
 
         return;
     }
@@ -1195,7 +1265,18 @@ void publishAggregatedRecord(
 {
     if (!mqttClient.connected())
     {
-        Serial.println("[MQTT] Not connected - record not published");
+        Serial.println(
+            "[MQTT] Not connected - storing record"
+        );
+
+        bufferAggregatedRecord(
+            sensorName,
+            average,
+            minimum,
+            maximum,
+            validCount
+        );
+
         return;
     }
 
@@ -1277,6 +1358,80 @@ void publishAggregatedRecord(
         );
     }
 }
+// ==================================================
+// FLUSH STORED MQTT RECORDS
+// ==================================================
+
+void flushMQTTBuffer()
+{
+    if (!mqttClient.connected() || mqttBufferCount == 0)
+    {
+        return;
+    }
+
+    Serial.print("[BUFFER] Flushing ");
+    Serial.print(mqttBufferCount);
+    Serial.println(" stored record(s)");
+
+    while (mqttBufferCount > 0 && mqttClient.connected())
+    {
+        BufferedRecord &record = mqttBuffer[0];
+
+        String payload = "{";
+        payload += "\"device_id\":\"";
+        payload += DEVICE_ID;
+        payload += "\",";
+        payload += "\"firmware\":\"";
+        payload += FIRMWARE_VERSION;
+        payload += "\",";
+        payload += "\"sensor\":\"";
+        payload += record.sensor;
+        payload += "\",";
+        payload += "\"timestamp\":";
+        payload += String(record.timestamp);
+        payload += ",";
+        payload += "\"average\":";
+        payload += String(record.average, 2);
+        payload += ",";
+        payload += "\"min\":";
+        payload += String(record.minimum, 2);
+        payload += ",";
+        payload += "\"max\":";
+        payload += String(record.maximum, 2);
+        payload += ",";
+        payload += "\"valid_count\":";
+        payload += String(record.validCount);
+        payload += "}";
+
+        String topic = "ispatial/devices/";
+        topic += DEVICE_ID;
+        topic += "/telemetry/";
+        topic += record.sensor;
+
+        if (mqttClient.publish(topic.c_str(), payload.c_str()))
+        {
+            Serial.println("[BUFFER] Stored record published");
+            Serial.print("[BUFFER] Topic: ");
+            Serial.println(topic);
+
+            for (int i = 1; i < mqttBufferCount; i++)
+            {
+                mqttBuffer[i - 1] = mqttBuffer[i];
+            }
+
+            mqttBufferCount--;
+
+            Serial.print("[BUFFER] Remaining: ");
+            Serial.println(mqttBufferCount);
+        }
+        else
+        {
+            Serial.println("[BUFFER] Publish failed - keeping record");
+            break;
+        }
+    }
+}
+
 // ==================================================
 // SETUP
 // ==================================================
@@ -1527,6 +1682,8 @@ void loop()
     if (mqttClient.connected())
     {
         mqttClient.loop();
+
+        flushMQTTBuffer();
 
         // ------------------------------------------
 // PERIODIC MQTT HEALTH MESSAGE
