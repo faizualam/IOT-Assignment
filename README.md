@@ -1,151 +1,141 @@
-# ESP32 IoT Monitoring Node
+# IoT Monitoring Node
 
-## 1. Project Overview
+An ESP32-based IoT monitoring system developed using PlatformIO and Wokwi. The system collects sensor data from an MPU6050 through I2C, processes data using FreeRTOS tasks, performs calibration and validation, aggregates measurements over 60-second periods, and publishes telemetry and health information through MQTT.
 
-This project is a prototype IoT monitoring device using an ESP32.
-
-The device reads sensors, checks sensor health, processes data, and will later send data to an IoT platform.
-
-Development is done using:
-
-- ESP32
-- PlatformIO
-- VS Code
-- Wokwi simulation
-- Arduino framework
-
-No physical hardware is used.
+The system also implements MQTT fault handling using a store-and-forward buffer so that aggregated records can be retained during temporary MQTT outages and automatically transmitted after reconnection.
 
 ---
 
-## 2. Current Architecture
+## 1. Project Overview
+
+The IoT Monitoring Node provides a complete sensor monitoring and communication pipeline:
+
+- ESP32-based monitoring node
+- MPU6050 sensor using I2C
+- UART sensor interface
+- Sensor warm-up and validation
+- Calibration using gain and offset
+- Persistent calibration using ESP32 NVS
+- FreeRTOS task-based processing
+- Queue-based sensor data processing
+- 60-second sensor aggregation
+- MQTT telemetry publishing
+- MQTT health monitoring
+- MQTT connection/reconnection
+- MQTT fault testing
+- Store-and-forward buffering
+- Multiple buffered record handling
+- Automatic buffered record transmission after MQTT recovery
+
+The project was developed and tested using **PlatformIO** and **Wokwi**.
+
+---
+
+## 2. System Architecture
+
+The overall system follows this processing flow:
 
 ```text
-             ESP32
-               |
-       +-------+-------+
-       |               |
-      I²C             UART
-       |               |
-    MPU6050       Sensor Emulator
-       |
-   Sensor Data
-       |
-   FreeRTOS Queue
-       |
-   Processing
+                         +----------------------+
+                         |        ESP32         |
+                         |   IoT Monitoring     |
+                         |        Node          |
+                         +----------+-----------+
+                                    |
+                    +---------------+---------------+
+                    |                               |
+                    v                               v
+             +-------------+                 +-------------+
+             |   MPU6050   |                 | UART Sensor |
+             |     I2C     |                 | Interface   |
+             +------+------+                 +------+------+
+                    |                               |
+                    +---------------+---------------+
+                                    |
+                                    v
+                         +----------------------+
+                         | Sensor Validation    |
+                         | & Calibration         |
+                         +----------+-----------+
+                                    |
+                                    v
+                         +----------------------+
+                         | FreeRTOS Processing  |
+                         | & Queue              |
+                         +----------+-----------+
+                                    |
+                                    v
+                         +----------------------+
+                         | 60-Second Aggregation|
+                         | Avg / Min / Max      |
+                         +----------+-----------+
+                                    |
+                                    v
+                         +----------------------+
+                         |    MQTT Publisher    |
+                         +----------+-----------+
+                                    |
+                       +------------+------------+
+                       |                         |
+                       v                         v
+                MQTT Connected           MQTT Unavailable
+                       |                         |
+                       |                         v
+                       |                +----------------+
+                       |                | Store-and-     |
+                       |                | Forward Buffer |
+                       |                +-------+--------+
+                       |                        |
+                       +<-----------------------+
+                              Reconnect
+
 ```
-## 3. I²C Sensor
+## 3. Hardware
+Components
+| Component      | Purpose                         |
+| -------------- | ------------------------------- |
+| ESP32 DevKit   | Main microcontroller            |
+| MPU6050        | Sensor connected through I2C    |
+| UART Interface | Secondary sensor interface      |
+| Wokwi          | Hardware simulation and testing |
 
-The MPU6050 is used as the I²C sensor.
+## MPU6050 Wiring
+| MPU6050 Pin | ESP32   |
+| ----------- | ------- |
+| VCC         | 3.3V    |
+| GND         | GND     |
+| SDA         | GPIO 21 |
+| SCL         | GPIO 22 |
 
-Connections
-MPU6050	ESP32
-VCC	3.3V
-GND	GND
-SDA	GPIO 21
-SCL	GPIO 22
+The MPU6050 is detected successfully during startup.
 
-The MPU6050 library used is the Adafruit MPU6050 library.
+## 4. Software Environment
+The project uses:
 
-Reference:
-https://github.com/adafruit/Adafruit_MPU6050
+PlatformIO
 
-## 4. FreeRTOS
+ESP32 Arduino framework
 
-Three tasks are currently used:
+Wokwi
 
-I²C sensor task
-UART sensor task
-Processing task
+FreeRTOS
 
-Sensor readings are passed through a FreeRTOS queue.
+Adafruit MPU6050 library
 
-This keeps sensor acquisition separate from processing.
+PubSubClient MQTT library
 
-Reference:
-https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/freertos.html
+ESP32 Preferences / NVS
 
-## 5. Sensor Reading
+## MQTT Broker
 
-Each reading contains:
+The MQTT broker used during testing is:
 
-Sensor
-Value
-Valid
-Status
-Timestamp
+``` Text
+broker.hivemq.com
 
-Example:
+```
+MQTT port:
+```
+1883
 
-[DATA] MPU6050
-Value: 24.00
-Valid: YES
-Status: OK
-
-Invalid readings are marked as invalid and will not be used in future calculations.
-
-## 6. Sensor States
-
-The firmware currently supports:
-
-WARMING_UP
-OK
-NO_RESPONSE
-OUT_OF_RANGE
-FROZEN
-
-During warm-up, the sensor reading is not trusted.
-
-Example:
-
-Status: WARMING_UP
-Valid: NO
-
-After warm-up:
-
-Status: OK
-Valid: YES
-
-## 7. Testing
-I²C Test
-
-Status: PASS
-
-Wokwi successfully detected the MPU6050 and produced sensor readings.
-
-Example:
-
-[I2C] MPU6050 detected
-[DATA] MPU6050 | Value: 24.00 | Valid: YES | Status: OK
-UART Test
-
-Status: IN PROGRESS
-
-UART interface initialization works, but the current UART simulation needs further testing.
-
-## 8. Next Steps
-
-The remaining development will include:
-
-Complete UART sensor testing
-
-Sensor fault detection
-
-Calibration
-
-60-second data aggregation
-
-MQTT communication
-
-Flash store-and-forward
-
-Remote commands
-
-OTA update and rollback
-
-Watchdog and reconnection
-
-Final testing and demo
-
-
+```
